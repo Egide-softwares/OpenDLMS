@@ -79,6 +79,8 @@ Association,AARQ → AARE,AARQ → AARE
 Data,GET → Response,GET → Response
 
 ## Running the Tests
+
+You can get the simulator from gurux.fi
 To compile and run, follow these steps from your build directory:
 
 ```sh
