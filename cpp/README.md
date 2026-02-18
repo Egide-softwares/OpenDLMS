@@ -1,5 +1,15 @@
-# OpenDLMS
-An open source DLMS-COSEM library
+# OpenDLMS CPP
+
+An open source DLMS-COSEM core C++ library
+
+## Requirements
+
+Prerequisites
+- C++17 Compiler (GCC 9+, Clang 10+)
+
+- CMake 3.15+
+
+- Asio (Standalone or Boost)
 
 ## Setup
 
@@ -80,7 +90,6 @@ Data,GET → Response,GET → Response
 
 ## Running the Tests
 
-You can get the simulator from gurux.fi
 To compile and run, follow these steps from your build directory:
 
 ```sh
@@ -88,17 +97,9 @@ To compile and run, follow these steps from your build directory:
 cmake ..
 make
 
-# 2. Start Simulator for HDLC (No -w)
-# java -jar gurux-dlms-simulator-java.jar -p 4050 -N 1 -t Verbose -x xml/crystal.xml
-
-# 3. In a new terminal, run the HDLC client
+# 2. In a new terminal, run the HDLC client
 ./tcp_hdlc_client
 
-# --- SWITCHING MODES ---
-
-# 4. Stop Simulator and Restart for Wrapper (With -w)
-# java -jar gurux-dlms-simulator-java.jar -p 4051 -N 1 -t Verbose -w -x xml/crystal.xml
-
-# 5. Run the Wrapper client
+# 3. Run the Wrapper client
 ./tcp_wrapper_client
 ```
