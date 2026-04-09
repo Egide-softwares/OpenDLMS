@@ -1,5 +1,6 @@
 package com.pivotaccess.dlmscosem.hdlc;
 
+import com.pivotaccess.dlmscosem.session.CosemSession;
 import com.pivotaccess.dlmscosem.transport.Transport;
 import com.pivotaccess.dlmscosem.transport.TransportException;
 import org.slf4j.Logger;
@@ -37,7 +38,7 @@ import java.util.Arrays;
  * piggybacking N(R) on its own I-frame (the common case for AARQ → AARE).
  * Both paths are handled in {@link #sendAndAwaitAck}.
  */
-public class HDLCSession {
+public class HDLCSession implements CosemSession {
 
     private static final Logger log = LoggerFactory.getLogger(HDLCSession.class);
 
@@ -68,7 +69,7 @@ public class HDLCSession {
 
     // -------------------------------------------------------------------------
     // Configuration
-    // -------------------------------------------------------------------------
+    // -------------------------------------implements------------------------------------
 
     private final Transport                  transport;
     private final HDLCAddress                clientAddress;
@@ -85,6 +86,7 @@ public class HDLCSession {
     private HDLCNegotiationParameters negotiatedParams;
     private int                       sendSeq           = 0;
     private int                       recvSeq           = 0;
+    private boolean                   strictSequenceControl;
 
     // -------------------------------------------------------------------------
     // Constructors
@@ -95,7 +97,8 @@ public class HDLCSession {
                        HDLCAddress serverAddress,
                        HDLCNegotiationParameters params,
                        int timeoutMs,
-                       int maxRetries) {
+                       int maxRetries,
+                       boolean strictSequenceControl) {
         this.transport       = transport;
         this.clientAddress   = clientAddress;
         this.serverAddress   = serverAddress;
@@ -103,15 +106,16 @@ public class HDLCSession {
         this.negotiatedParams = params;
         this.timeoutMs       = timeoutMs;
         this.maxRetries      = maxRetries;
+        this.strictSequenceControl = strictSequenceControl;
     }
 
     public HDLCSession(Transport transport,
                        HDLCAddress clientAddress,
                        HDLCAddress serverAddress,
                        int timeoutMs,
-                       int maxRetries) {
+                       int maxRetries, boolean strictSequenceControl) {
         this(transport, clientAddress, serverAddress,
-                HDLCNegotiationParameters.defaults(), timeoutMs, maxRetries);
+                HDLCNegotiationParameters.defaults(), timeoutMs, maxRetries, strictSequenceControl);
     }
 
     // -------------------------------------------------------------------------
@@ -287,11 +291,22 @@ public class HDLCSession {
                     case I:
                         // Implicit ack + response data
                         if (response.getSendSeq() != recvSeq) {
-                            throw new HDLCSessionException(String.format(
+                            String errorMsg = String.format(
                                     "Unexpected I-frame N(S)=%d (expected %d)",
-                                    response.getSendSeq(), recvSeq));
+                                    response.getSendSeq(), recvSeq);
+
+                            if (strictSequenceControl) {
+                                throw new HDLCSessionException(errorMsg);
+                            } else {
+                                log.warn("Strict Sequence Disabled: Ignoring mismatch -> {}", errorMsg);
+                            }
                         }
-                        recvSeq = (recvSeq + 1) % 8;
+                        if (strictSequenceControl) {
+                            recvSeq = (recvSeq + 1) % 8;
+                        } else {
+                            // Using the server's actual sequence if strict mode is off
+                            recvSeq = (response.getSendSeq() + 1) % 8;
+                        }
                         // Acknowledge the server's I-frame
                         writeFrame(HDLCFrame.rr(serverAddress, clientAddress,
                                 recvSeq, false));
@@ -336,7 +351,7 @@ public class HDLCSession {
             HDLCFrame frame = readNextFrame();
 
             if (frame.getType() == HDLCFrameType.I) {
-                // We got an Information frame! Update our receive sequence counter.
+                // We got an Information frame! Update our reception sequence counter.
                 recvSeq = (frame.getSendSeq() + 1) % 8;
 
                 responseBuffer.write(frame.getPayload(), 0, frame.getPayload().length);

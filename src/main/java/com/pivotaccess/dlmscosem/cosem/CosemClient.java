@@ -411,7 +411,9 @@ public final class CosemClient implements AutoCloseable {
                 server.asHdlcAddress(),
                 config.getHdlcParams(),
                 config.getTimeoutMs(),
-                config.getMaxRetries());
+                config.getMaxRetries(),
+                config.isStrictSequenceControlEnabled()
+                );
     }
 
     private Transport createTransport(TransportConfig tc) {

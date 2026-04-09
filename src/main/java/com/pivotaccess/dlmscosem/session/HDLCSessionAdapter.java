@@ -26,20 +26,11 @@ public final class HDLCSessionAdapter implements CosemSession {
             HDLCAddress serverAddress,
             HDLCNegotiationParameters params,
             int timeoutMs,
-            int maxRetries) {
+            int maxRetries,
+            boolean strictSequenceControl) {
         this.delegate = new HDLCSession(
                 transport, clientAddress, serverAddress,
-                params, timeoutMs, maxRetries);
-    }
-
-    public HDLCSessionAdapter(
-            Transport transport,
-            HDLCAddress clientAddress,
-            HDLCAddress serverAddress,
-            int timeoutMs,
-            int maxRetries) {
-        this(transport, clientAddress, serverAddress,
-                HDLCNegotiationParameters.defaults(), timeoutMs, maxRetries);
+                params, timeoutMs, maxRetries, strictSequenceControl);
     }
 
     // -------------------------------------------------------------------------

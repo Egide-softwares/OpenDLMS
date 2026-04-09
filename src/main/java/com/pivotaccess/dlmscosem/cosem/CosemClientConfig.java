@@ -55,6 +55,13 @@ public final class CosemClientConfig {
     private final int                          timeoutMs;
     private final int                          maxRetries;
     private final int                          invokeIdSeed;
+    /**
+     * Whether to enable strict HDLC FRAME sequence control (reject out-of-order frames).
+     * Only relevant for HDLC sessions.
+     * <br/>
+     * Default: true.
+     */
+    private final boolean                      strictSequenceControl;
 
     /**
      * The {@code client-max-receive-pdu-size} sent in the AARQ xDLMS
@@ -85,6 +92,7 @@ public final class CosemClientConfig {
         this.maxRetries       = b.maxRetries;
         this.invokeIdSeed     = b.invokeIdSeed;
         this.maxReceivePduSize = b.maxReceivePduSize;
+        this.strictSequenceControl = b.strictSequenceControl;
     }
 
     // -------------------------------------------------------------------------
@@ -100,6 +108,13 @@ public final class CosemClientConfig {
     public int                          getTimeoutMs()        { return timeoutMs; }
     public int                          getMaxRetries()       { return maxRetries; }
     public int                          getInvokeIdSeed()     { return invokeIdSeed; }
+    /**
+     * Whether strict HDLC FRAME sequence control (reject out-of-order frames) is enabled.
+     * Only relevant for HDLC sessions.
+     * <br/>
+     * Default: true.
+     */
+    public boolean                      isStrictSequenceControlEnabled() { return strictSequenceControl; }
 
     /**
      * The client-max-receive-pdu-size sent in the AARQ (what we claim we can receive).
@@ -126,6 +141,7 @@ public final class CosemClientConfig {
         private int                          maxRetries        = 3;
         private int                          invokeIdSeed      = 1;
         private int                          maxReceivePduSize = AarqApdu.DEFAULT_MAX_RECEIVE_PDU_SIZE;
+        private boolean                      strictSequenceControl = true;
 
         private Builder() {}
 
@@ -219,6 +235,17 @@ public final class CosemClientConfig {
         }
 
         /**
+         * Whether strict HDLC FRAME sequence control (reject out-of-order frames) is enabled.
+         * Only relevant for HDLC sessions.
+         * <br/>
+         * Default: true.
+         */
+        public Builder enableStrictSequenceControl(boolean enabled) {
+            this.strictSequenceControl = enabled;
+            return this;
+        }
+
+        /**
          * Validates and builds the config.
          *
          * @throws IllegalStateException if required fields are missing or the
@@ -236,7 +263,7 @@ public final class CosemClientConfig {
                         "authValue is required when authLevel is not NONE");
             }
 
-            // Enforce address mode ↔ framing mode consistency at build time
+            // Enforce address mode <-> framing mode consistency at build time
             boolean wrapperTransport = transportConfig.isWrapper();
             if (wrapperTransport && serverAddress.isHdlc()) {
                 throw new IllegalStateException(
