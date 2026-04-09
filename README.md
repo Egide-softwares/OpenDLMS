@@ -25,41 +25,18 @@ A Java library for communicating with DLMS/COSEM smart meters over RS-485 serial
 
 ---
 
-## Installation
-
-### Maven
-
-Add to your `pom.xml`:
-
-```xml
-<dependency>
-    <groupId>com.pivotaccess.dlmscosem-cosem</groupId>
-    <artifactId>dlms-cosem</artifactId>
-    <version>0.1.0</version>
-</dependency>
-```
-
-### Build from source
-
-```bash
-git clone https://gitlab.pepc.rw/smart-meter/dlms-cosem.git
-cd dlms-cosem
-mvn clean install
-```
-
----
-
 ## Quick Start
 
 ### Read a single meter
 
 ```java
-MeterConfig config = MeterConfig.builder()
-    .meterId("meter_01")
-    .transport(TransportType.RS485)
-    .portName("/dev/ttyUSB0")
-    .baudRate(9600)
-    .hdlcAddress(1)
+MCosemClientConfig config = CosemClientConfig.builder()
+    .transport(TransportConfig.rs485("/dev/ttyUSB0", 9600))
+    .serverAddress(MeterAddress.hdlcServer(1))
+    .clientAddress(MeterAddress.hdlcClient(16))
+    .authentication(AarqApdu.AuthenticationLevel.NONE, null)
+    .maxReceivePduSize(1024)
+    .timeoutMs(2_000)
     .build();
 
 try (CosemClient client = CosemClient.connect(config)) {
@@ -74,42 +51,99 @@ try (CosemClient client = CosemClient.connect(config)) {
 ### Read multiple meters concurrently
 
 ```java
-MeterPool pool = new MeterPool();
+private record MeterConfig(
+    String meterId,
+    String transportId,
+    long interval,
+    TimeUnit intervalUnit,
+    CosemClientConfig clientConfig
+) {}
 
-pool.addMeter(MeterConfig.builder()
-    .meterId("meter_01")
-    .portName("/dev/ttyUSB0")
-    .hdlcAddress(1)
-    .build());
+// Initialize the polling engine
+MeterPollingEngine engine = new MeterPollingEngine();
 
-pool.addMeter(MeterConfig.builder()
-    .meterId("meter_02")
-    .portName("/dev/ttyUSB0")  // same RS-485 bus
-    .hdlcAddress(2)
-    .build());
+// Define the callback for when a reading arrives
+MeterScheduler scheduler = new MeterScheduler(engine, reading -> {
+    if (reading.isSuccessful()) {
+        log.info("[OK] {}", reading);
+        // Ready to be serialized and sent to api or database, etc
+    } else {
+        log.error("[FAIL] {}", reading);
+    }
+});
 
-// Read all meters — bus access is automatically serialized
-Map<String, CompletableFuture<DataObject>> results =
-    pool.readAll(CosemAttribute.of("1.0.1.8.0.255", ClassId.REGISTER, 2));
-
-results.forEach((meterId, future) ->
-    future.thenAccept(value ->
-        System.out.println(meterId + " → " + value)));
+// A list of read meter tasks with intervals and transport details
+List<MeterConfig> configurations = List.of(
+    new MeterConfig(
+        "METER_01", "TCP_HDLC_127.0.0.1_4060", 20, TimeUnit.SECONDS,
+        CosemClientConfig.builder()
+                .transport(TransportConfig.tcp("localhost", 4060, TransportConfig.FramingMode.HDLC))
+                .serverAddress(MeterAddress.hdlcServer(1))
+                .clientAddress(MeterAddress.hdlcClient(16))
+                .authentication(AarqApdu.AuthenticationLevel.NONE, null)
+                .maxReceivePduSize(1024)
+                .timeoutMs(5_000)
+                .maxRetries(2)
+                .build()
+    ),
+    new MeterConfig(
+        "METER_02", "TCP_HDLC_127.0.0.1_4061", 35, TimeUnit.SECONDS,
+        CosemClientConfig.builder()
+                .transport(TransportConfig.tcp("localhost", 4061, TransportConfig.FramingMode.HDLC))
+                .serverAddress(MeterAddress.hdlcServer(1))
+                .clientAddress(MeterAddress.hdlcClient(16))
+                .authentication(AarqApdu.AuthenticationLevel.NONE, null)
+                .maxReceivePduSize(1024)
+                .timeoutMs(5_000)
+                .maxRetries(2)
+                .build()
+    ),
+    new MeterConfig(
+        "METER_03", "TCP_WRAPPER_127.0.0.1_4070", 25, TimeUnit.SECONDS,
+        CosemClientConfig.builder()
+                .transport(TransportConfig.tcp("localhost", 4070, TransportConfig.FramingMode.WRAPPER))
+                .serverAddress(MeterAddress.wrapperServer(1))
+                .clientAddress(MeterAddress.wrapperClient(16))
+                .authentication(AarqApdu.AuthenticationLevel.NONE, null)
+                .maxReceivePduSize(1024)
+                .timeoutMs(2_000)
+                .build()
+    ),
+    new MeterConfig(
+        "METER_04", "TCP_WRAPPER_127.0.0.1_4071", 30, TimeUnit.SECONDS,
+        CosemClientConfig.builder()
+                .transport(TransportConfig.tcp("localhost", 4071, TransportConfig.FramingMode.WRAPPER))
+                .serverAddress(MeterAddress.wrapperServer(1))
+                .clientAddress(MeterAddress.wrapperClient(16))
+                .authentication(AarqApdu.AuthenticationLevel.NONE, null)
+                .maxReceivePduSize(1024)
+                .timeoutMs(2_000)
+                .build()
+    )
+);
+        
+// Schedule all meters for polling
+for  (MeterConfig configuration : configurations) {
+    MeterReadTask task = new MeterReadTask(
+            configuration.meterId,
+            configuration.transportId,
+            configuration.clientConfig
+    );
+    scheduler.schedule(task, configuration.interval, configuration.intervalUnit);
+}
 ```
 
 ### Scheduled polling with callback
 
 ```java
-pool.schedule(
-    "meter_01",
-    CosemAttribute.of("1.0.1.7.0.255", ClassId.REGISTER, 2),
-    Duration.ofSeconds(10),
-    (meterId, obis, value, timestamp) -> {
-        // Forward to your central system, MQTT broker, database, etc.
-        System.out.printf("[%s] %s @ %s = %s%n",
-            meterId, obis, timestamp, value);
+MeterScheduler scheduler = new MeterScheduler(engine, reading -> {
+    if (reading.isSuccessful()) {
+        log.info("[OK] {}", reading);
+        // Ready to be serialized and sent to api or database, etc
+    } else {
+        log.error("[FAIL] {}", reading);
     }
-);
+});
 ```
 
 ### Read load profile (Profile Generic)
@@ -189,24 +223,6 @@ clock.setTime(ZonedDateTime.now());
    [M1] [M2] [M3]...           [M4] [M5]...
 ```
 
-### Package layout
-
-```
-com.yourcompany.dlmscosem/
-├── transport/         # RS485Transport, TcpTransport, Transport interface
-├── hdlc/              # HdlcFrame, HdlcAddress, HdlcSession
-├── apdu/              # BER encoder/decoder, AARQ, GET/SET/ACTION APDUs
-├── cosem/
-│   ├── CosemClient.java
-│   ├── CosemAttribute.java
-│   ├── ObisCode.java
-│   ├── DataObject.java
-│   └── objects/       # RegisterObject, ProfileGenericObject, ClockObject
-├── security/          # AesGcmSecurity, AuthenticationLevel
-├── pool/              # MeterPool, MeterConfig, SerialBusExecutor
-└── export/            # DataCallback, MqttExporter, RestExporter
-```
-
 ---
 
 ## Standards
@@ -267,15 +283,15 @@ mvn test
 ## Roadmap
 
 - [x] Project scaffolding
-- [ ] RS-485 transport (jSerialComm)
-- [ ] HDLC framing layer
-- [ ] BER ASN.1 encoder/decoder
-- [ ] DLMS GET / SET / ACTION
-- [ ] COSEM object model (Register, Clock, Data)
-- [ ] MeterPool concurrent polling
-- [ ] Profile Generic (load profiles)
-- [ ] Security — Low auth, AES-128-GCM
-- [ ] TCP/WRAPPER transport
+- [x] RS-485 transport (jSerialComm)
+- [x] HDLC framing layer
+- [x] BER ASN.1 encoder/decoder
+- [x] DLMS GET / SET / ACTION
+- [x] COSEM object model (Register, Clock, Data)
+- [x] MeterPool concurrent polling
+- [x] Profile Generic (load profiles)
+- [x] Security — Low auth, AES-128-GCM
+- [x] TCP/WRAPPER transport
 - [ ] Data export callbacks
 - [ ] Central system integration example
 
